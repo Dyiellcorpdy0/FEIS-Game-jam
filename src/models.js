@@ -454,9 +454,122 @@ window.Models = (function () {
     return honest;
   }
 
+  function groupSuccessChance(monsters, quest, agency) {
+    let totalStat = 0;
+    monsters.forEach(function (m) {
+      totalStat += effectiveStat(m, quest, agency);
+    });
+    let chance = 0.5 + (totalStat - quest.difficulty) * 0.05;
+    monsters.forEach(function (m) {
+      if (m.preference === 'любит_риск' && quest.difficulty >= 6) chance += 0.05;
+      if (m.preference === 'только_лёгкие_задания' && quest.difficulty <= 4) chance += 0.05;
+    });
+    return Utils.clamp(chance, 0.05, 0.95);
+  }
+
   function overkillReportKey(type) {
     const key = 'overkill_' + type;
     return Content.REPORTS[key] ? key : 'overkill_farm';
+  }
+
+  function calculateGroupResult(monsters, quest, agency) {
+    // Силы всех монстров суммируются — главная суть мультиотправки
+    let totalStat = 0;
+    let totalInjuryMod = 0;
+    let hasClumsy = false;
+
+    monsters.forEach(function (m) {
+      totalStat += effectiveStat(m, quest, agency);
+      totalInjuryMod += equipmentInjuryMod(m);
+      if (m.traits[0] === 'неуклюжий') hasClumsy = true;
+    });
+
+    // Шанс успеха на основе суммарной статы (командный бонус)
+    let chance = 0.5 + (totalStat - quest.difficulty) * 0.05;
+
+    // Бонусы предпочтений от каждого монстра
+    monsters.forEach(function (m) {
+      if (m.preference === 'любит_риск' && quest.difficulty >= 6) chance += 0.05;
+      if (m.preference === 'только_лёгкие_задания' && quest.difficulty <= 4) chance += 0.05;
+    });
+
+    chance = Utils.clamp(chance, 0.05, 0.95);
+
+    const armor = totalInjuryMod + (hasClumsy ? 0.2 : 0);
+
+    let type, gold = 0, injury = false;
+    if (Math.random() < chance) {
+      // Оверкилл шанс основан на среднем превышении сложности
+      const avgMargin = totalStat / monsters.length - quest.difficulty;
+      let p = 0.08 + Math.max(0, avgMargin) * 0.015;
+      monsters.forEach(function (m) {
+        if (m.traits[0] === 'удачливый') p += 0.05;
+      });
+      p = Utils.clamp(p, 0.05, 0.30);
+
+      if (Utils.chance(p)) {
+        type = 'overkill';
+        gold = Math.floor(quest.reward * 1.5);
+        injury = Utils.chance(Utils.clamp(0.3 + armor, 0.02, 0.8));
+      } else if (Utils.chance(0.18)) {
+        type = 'partial';
+        gold = Math.round(quest.reward * 0.5);
+      } else {
+        type = 'success';
+        gold = quest.reward;
+      }
+    } else {
+      const r = Math.random();
+      const injuryP = Utils.clamp(0.2 + armor, 0.02, 0.5);
+      if (r < 0.7) type = 'fail';
+      else if (r < 0.7 + injuryP) { type = 'injury'; injury = true; }
+      else if (r < 0.7 + injuryP + 0.1) {
+        // Неуловимый у любого монстра спасает от исчезновения
+        if (monsters.some(function (m) { return m.traits[0] === 'неуловимый'; })) {
+          type = 'injury'; injury = true;
+        } else type = 'lost';
+      } else type = 'fail';
+    }
+
+    // Честность отчёта — от самого умного монстра в группе
+    const bestIntMonster = monsters.reduce(function (best, m) {
+      return effectiveIntel(m) > effectiveIntel(best) ? m : best;
+    }, monsters[0]);
+
+    const honest = honestyChance(bestIntMonster, agency);
+    let reportKey, lied = false;
+
+    if (type === 'overkill') {
+      reportKey = overkillReportKey(quest.type);
+    } else if (type === 'injury') {
+      reportKey = 'injury';
+    } else if (type === 'lost') {
+      reportKey = 'lost';
+    } else {
+      const truthful = Utils.chance(honest);
+      lied = !truthful;
+      if (type === 'success') reportKey = truthful ? 'success_honest' : 'success_lie';
+      else if (type === 'partial') reportKey = truthful ? 'partial_honest' : 'partial_lie';
+      else reportKey = truthful ? 'fail_honest' : 'fail_lie';
+    }
+
+    return {
+      type: type,
+      gold: gold,
+      injury: injury,
+      reportText: Utils.pick(Content.REPORTS[reportKey]),
+      reportKey: reportKey,
+      lied: lied,
+      honesty: honest,
+      int: effectiveIntel(bestIntMonster),
+      monsterId: bestIntMonster.id,
+      monsterName: bestIntMonster.name,
+      speciesKey: bestIntMonster.speciesKey,
+      speciesLabel: bestIntMonster.speciesLabel,
+      questId: quest.id,
+      questTitle: quest.title,
+      participants: monsters.map(function (m) { return m.id; })
+    };
   }
 
   // «Перестарался» — не любой успех, а заметное превышение сложности.
@@ -551,8 +664,10 @@ window.Models = (function () {
       agency.threat = Utils.clamp(agency.threat + 0.03, 0, 1);
     }
 
-    const m = agency.monsters.find(function (x) { return x.id === r.monsterId; });
-    if (m) {
+    // Все участники группы получают статус после задания
+    (r.participants || [r.monsterId]).forEach(function (pid) {
+      const m = agency.monsters.find(function (x) { return x.id === pid; });
+      if (!m) return;
       if (r.type === 'lost') {
         agency.monsters = agency.monsters.filter(function (x) { return x.id !== m.id; });
         agency.stats.losses++;
@@ -560,14 +675,14 @@ window.Models = (function () {
       } else {
         m.missions++;
         if (r.type === 'overkill') m.overkillCount++;
-        if (r.type === 'injury' || r.injury) m.status = 'injured';
+        if (r.injury) m.status = 'injured';
         else m.status = 'busy';   // один монстр — одно задание в день
       }
       if (m.temp) {
         m.temp.missions--;
         if (m.temp.missions <= 0) m.temp = null;
       }
-    }
+    });
 
     const record = {
       monsterName: r.monsterName,
@@ -707,9 +822,11 @@ window.Models = (function () {
     successChance,
     honestyChance,
     overkillChance,
+    groupSuccessChance,
     effectiveStat,
     effectiveIntel,
     calculateResult,
+    calculateGroupResult,
     applyMissionResult,
     nextDay,
     evaluateScore,
