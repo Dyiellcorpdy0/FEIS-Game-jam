@@ -206,8 +206,8 @@ window.Renderer = {
   // Чернила на пергаменте: тёмный текст с лёгким светлым «выдавлением»
   ink(str, x, y, opts) {
     opts = opts || {};
-    this.text(str, x + 1, y + 1, Object.assign({}, opts, { color: 'rgba(255,246,220,0.35)' }));
-    this.text(str, x, y, Object.assign({}, opts, { color: opts.color || this.THEME.ink }));
+    this.text(str, x + 1, y + 1, Object.assign({}, opts, { color: 'rgba(255,246,220,0.20)' }));
+    this.text(str, x, y, Object.assign({}, opts, { color: opts.color || '#1a1008' }));
   },
 
   gradientRect(x, y, w, h, colorTop, colorBottom) {

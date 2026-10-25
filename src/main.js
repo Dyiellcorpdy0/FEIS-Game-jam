@@ -1217,10 +1217,9 @@
 
   // ── Меню ─────────────────────────────────────────────────────────────────
   function drawMenu() {
-    Renderer.drawImage('bg_agency', 0, 0, W, H);
-    Renderer.rect(0, 0, W, H, 'rgba(6,4,2,0.74)');
-    Renderer.grime(W, H, 0.55);
-    Renderer.vignette(W, H, 0.6);
+    Renderer.rect(0, 0, W, H, T.bg);
+    Renderer.rect(0, 0, W, H, 'rgba(6,4,2,0.88)');
+    Renderer.vignette(W, H, 0.5);
 
     const x = W/2 - 450, y = 120, w = 900, h = 460;
     Renderer.paper(x, y, w, h, { r: 8, burn: 22 });
@@ -1267,9 +1266,9 @@
 
   // ── Пролог ───────────────────────────────────────────────────────────────
   function drawIntro() {
-    Renderer.drawImage('bg_agency', 0, 0, W, H);
-    Renderer.rect(0, 0, W, H, 'rgba(5,3,1,0.88)');
-    Renderer.grime(W, H, 0.5);
+    Renderer.rect(0, 0, W, H, T.bg);
+    Renderer.rect(0, 0, W, H, 'rgba(5,3,1,0.92)');
+    Renderer.vignette(W, H, 0.4);
 
     const x = W/2 - 400, y = 120, w = 800, h = 480;
     Renderer.paper(x, y, w, h, { r: 8, burn: 22 });
